@@ -41,8 +41,8 @@ class RNSMessengerApp(App):
     def build(self):
         Window.clearcolor = (0.07, 0.07, 0.10, 1)
         self.backend = RNSBackend()
-        self.backend.on_rns_ready    = self._on_rns_ready
-        self.backend.on_message      = self._on_message_received
+        self.backend.on_rns_ready = self._on_rns_ready
+        self.backend.on_message   = self._on_message_received
         self.sm = ScreenManager(transition=SlideTransition())
         self.sm.add_widget(ContactsScreen(name="contacts", app=self))
         self.sm.add_widget(ChatScreen(name="chat",         app=self))
@@ -52,26 +52,30 @@ class RNSMessengerApp(App):
         return self.sm
 
     def _start_rns(self):
+        error_msg = None
         try:
             settings = self._load_settings()
             write_rns_config(
                 config_dir=RNS_CONFIG,
                 bt_port=settings.get("bt_port", "/dev/rfcomm0"),
-                frequency=settings.get("frequency", 868000000),
+                frequency=settings.get("frequency", 433025000),
                 bandwidth=settings.get("bandwidth", 125000),
-                txpower=settings.get("txpower", 14),
-                sf=settings.get("sf", 7),
-                cr=settings.get("cr", 5),
+                txpower=settings.get("txpower", 17),
+                sf=settings.get("sf", 8),
+                cr=settings.get("cr", 6),
             )
             self.backend.start()
         except Exception as e:
-            print(f"[RNS] Startup error (non-fatal): {e}")
-            Clock.schedule_once(lambda dt: self._notify_rns_error(str(e)))
+            error_msg = str(e)[:50]
+            print(f"[RNS] Startup error: {error_msg}")
 
-    def _notify_rns_error(self, error):
+        if error_msg is not None:
+            msg = error_msg  # capture in local var for lambda
+            Clock.schedule_once(lambda dt: self._notify_rns_error(msg))
+
+    def _notify_rns_error(self, msg):
         try:
-            contacts = self.sm.get_screen("contacts")
-            contacts.set_my_address(f"RNS offline: {error[:40]}")
+            self.sm.get_screen("contacts").set_my_address(f"RNS offline: {msg}")
         except Exception:
             pass
 
