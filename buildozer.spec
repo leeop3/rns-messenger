@@ -8,7 +8,7 @@ source.include_exts = py,png,jpg,kv,atlas,json,cfg,md
 
 version         = 0.1.0
 
-requirements    = python3,kivy==2.2.1,rns,lxmf,pyjnius,msgpack,cryptography
+requirements    = python3,kivy==2.2.1,rns,lxmf,pyjnius,msgpack,cryptography,bz2,sqlite3
 
 orientation     = portrait
 fullscreen       = 0
@@ -21,6 +21,8 @@ android.ndk         = 25b
 android.sdk         = 33
 android.ndk_api     = 26
 android.archs       = arm64-v8a
+
+android.add_python_libs = _bz2,_sqlite3,_ssl,_hashlib
 
 p4a.bootstrap       = sdl2
 p4a.branch          = v2023.02.10
