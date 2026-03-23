@@ -1,4 +1,27 @@
-﻿import threading
+import sys
+import types
+
+# Stub _bz2 for Android (RNS uses it optionally)
+if '_bz2' not in sys.modules:
+    try:
+        import _bz2
+    except ImportError:
+        mod = types.ModuleType('_bz2')
+        class BZ2Compressor:
+            def __init__(self, *a, **kw): pass
+            def compress(self, data): return data
+            def flush(self): return b''
+        class BZ2Decompressor:
+            def __init__(self, *a, **kw):
+                self.unused_data = b''
+                self.needs_input = True
+                self.eof = False
+            def decompress(self, data, *a, **kw): return data
+        mod.BZ2Compressor = BZ2Compressor
+        mod.BZ2Decompressor = BZ2Decompressor
+        sys.modules['_bz2'] = mod
+
+import threading
 import os
 
 os.environ.setdefault("KIVY_NO_ENV_CONFIG", "1")
