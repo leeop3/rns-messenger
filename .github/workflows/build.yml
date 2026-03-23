@@ -19,9 +19,7 @@ jobs:
       - name: Cache Buildozer
         uses: actions/cache@v4
         with:
-          path: |
-            ~/.buildozer
-            ~/.gradle
+          path: ~/.buildozer
           key: buildozer-${{ hashFiles('buildozer.spec') }}
           restore-keys: buildozer-
 
@@ -38,31 +36,36 @@ jobs:
         run: |
           pip3 install --upgrade buildozer cython==0.29.33
 
-      - name: Set up Android SDK with sdkmanager in legacy path
+      - name: Set up Android SDK
         run: |
           ANDROID_SDK=~/.buildozer/android/platform/android-sdk
           mkdir -p $ANDROID_SDK
 
-          # Download cmdline-tools
-          wget -q https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip -O cmdtools.zip
-          unzip -q cmdtools.zip -d cmdtools_tmp
+          # Only install if sdkmanager not already present (from cache)
+          if [ ! -f "$ANDROID_SDK/cmdline-tools/latest/bin/sdkmanager" ]; then
+            wget -q https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip -O cmdtools.zip
+            unzip -q cmdtools.zip -d cmdtools_tmp
+            mkdir -p $ANDROID_SDK/cmdline-tools/latest
+            cp -r cmdtools_tmp/cmdline-tools/* $ANDROID_SDK/cmdline-tools/latest/
+            rm -rf cmdtools_tmp cmdtools.zip
+          fi
 
-          # Install in BOTH new and legacy paths so Buildozer finds it
-          mkdir -p $ANDROID_SDK/cmdline-tools/latest
-          mv cmdtools_tmp/cmdline-tools/* $ANDROID_SDK/cmdline-tools/latest/
-
-          # Create legacy tools/bin symlink that Buildozer expects
+          # Legacy symlink Buildozer expects
           mkdir -p $ANDROID_SDK/tools/bin
-          ln -sf $ANDROID_SDK/cmdline-tools/latest/bin/sdkmanager $ANDROID_SDK/tools/bin/sdkmanager
-          ln -sf $ANDROID_SDK/cmdline-tools/latest/bin/avdmanager $ANDROID_SDK/tools/bin/avdmanager
+          ln -sf $ANDROID_SDK/cmdline-tools/latest/bin/sdkmanager $ANDROID_SDK/tools/bin/sdkmanager 2>/dev/null || true
+          ln -sf $ANDROID_SDK/cmdline-tools/latest/bin/avdmanager $ANDROID_SDK/tools/bin/avdmanager 2>/dev/null || true
 
-          # Accept licenses and install required packages
           export PATH=$PATH:$ANDROID_SDK/cmdline-tools/latest/bin
+
           yes | sdkmanager --sdk_root=$ANDROID_SDK --licenses 2>/dev/null || true
-          sdkmanager --sdk_root=$ANDROID_SDK \
-            "build-tools;33.0.2" \
-            "platforms;android-33" \
-            "platform-tools"
+
+          # Only install packages if not cached
+          if [ ! -d "$ANDROID_SDK/build-tools/33.0.2" ]; then
+            sdkmanager --sdk_root=$ANDROID_SDK \
+              "build-tools;33.0.2" \
+              "platforms;android-33" \
+              "platform-tools"
+          fi
 
       - name: Build APK
         run: |
