@@ -47,51 +47,80 @@ BT_RNODE_CONFIG_SAFE = """
 _bt_socket = None
 
 
+def request_bt_permissions(callback):
+    """
+    Request Bluetooth runtime permissions on Android 12+.
+    callback(granted: bool) is called when done.
+    """
+    try:
+        from android.permissions import request_permissions, Permission, check_permission
+        from android import api_version
+
+        if api_version < 31:
+            # Android < 12 ? no runtime BT perms needed
+            callback(True)
+            return
+
+        perms = [
+            Permission.BLUETOOTH_CONNECT,
+            Permission.BLUETOOTH_SCAN,
+        ]
+
+        # Check if already granted
+        all_granted = all(check_permission(p) for p in perms)
+        if all_granted:
+            callback(True)
+            return
+
+        def on_result(permissions, grant_results):
+            granted = all(g for g in grant_results)
+            print(f"[BT] Permission result: {granted}")
+            callback(granted)
+
+        request_permissions(perms, on_result)
+
+    except Exception as e:
+        print(f"[BT] Permission request error: {e}")
+        callback(False)
+
+
 def get_paired_devices():
     """
     Returns list of device name strings for paired BT Classic devices.
-    Must be called from a background thread on Android.
+    Call only after permissions are granted.
     """
     results = []
     try:
-        from jnius import autoclass, cast
+        from jnius import autoclass
         print("[BT] Scanning for paired devices...")
 
         BluetoothAdapter = autoclass("android.bluetooth.BluetoothAdapter")
-        BluetoothDevice  = autoclass("android.bluetooth.BluetoothDevice")
-
         adapter = BluetoothAdapter.getDefaultAdapter()
+
         if adapter is None:
-            print("[BT] ERROR: No Bluetooth adapter found")
+            print("[BT] ERROR: No Bluetooth adapter")
             return ["No BT adapter"]
 
         if not adapter.isEnabled():
-            print("[BT] ERROR: Bluetooth is not enabled")
-            return ["BT not enabled"]
+            print("[BT] ERROR: Bluetooth not enabled")
+            return ["BT not enabled - enable BT first"]
 
-        paired_set = adapter.getBondedDevices()
-        if paired_set is None:
-            print("[BT] No paired devices set returned")
-            return ["No paired devices"]
-
+        paired_set   = adapter.getBondedDevices()
         paired_array = paired_set.toArray()
         print(f"[BT] Found {len(paired_array)} paired device(s)")
 
         for device in paired_array:
             try:
-                name = device.getName()
-                addr = device.getAddress()
-                # BT Classic check ? type 1=Classic, 2=BLE, 3=Dual
+                name    = device.getName()
+                addr    = device.getAddress()
                 bt_type = device.getType()
-                type_str = {1: "Classic", 2: "BLE", 3: "Dual"}.get(bt_type, f"Unknown({bt_type})")
-                print(f"[BT] Device: {name} | {addr} | {type_str}")
+                type_str = {1: "Classic", 2: "BLE", 3: "Dual"}.get(bt_type, str(bt_type))
+                print(f"[BT] {name} | {addr} | {type_str}")
                 results.append(name)
             except Exception as de:
-                print(f"[BT] Error reading device: {de}")
+                print(f"[BT] Device read error: {de}")
 
-        if not results:
-            return ["No paired devices"]
-        return results
+        return results if results else ["No paired devices"]
 
     except Exception as e:
         print(f"[BT] get_paired_devices error: {e}")
@@ -101,19 +130,13 @@ def get_paired_devices():
 
 
 def connect_bt_device(device_name):
-    """
-    Connect to paired BT Classic device by name using SPP UUID.
-    Returns (True, port) or (False, error_message).
-    """
     global _bt_socket
     try:
         from jnius import autoclass
-        print(f"[BT] Connecting to {device_name} via BT Classic SPP...")
+        print(f"[BT] Connecting to {device_name}...")
 
         BluetoothAdapter = autoclass("android.bluetooth.BluetoothAdapter")
         UUID             = autoclass("java.util.UUID")
-
-        # Standard SPP (Serial Port Profile) UUID ? BT Classic only
         SPP_UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
 
         adapter = BluetoothAdapter.getDefaultAdapter()
@@ -130,14 +153,12 @@ def connect_bt_device(device_name):
                 break
 
         if target is None:
-            return False, f"'{device_name}' not found in paired devices"
+            return False, f"'{device_name}' not found"
 
         bt_type = target.getType()
-        print(f"[BT] Device type: {bt_type} (1=Classic 2=BLE 3=Dual)")
         if bt_type == 2:
-            return False, "Device is BLE only ? need BT Classic"
+            return False, "BLE only device - need Classic"
 
-        # Close existing socket
         if _bt_socket is not None:
             try:
                 _bt_socket.close()
@@ -145,12 +166,8 @@ def connect_bt_device(device_name):
                 pass
             _bt_socket = None
 
-        # Stop discovery before connecting (important!)
         adapter.cancelDiscovery()
-
-        # Create BT Classic RFCOMM socket
         socket = target.createRfcommSocketToServiceRecord(SPP_UUID)
-        print("[BT] Connecting RFCOMM socket...")
         socket.connect()
         _bt_socket = socket
         print(f"[BT] Connected to {device_name}")
@@ -158,8 +175,6 @@ def connect_bt_device(device_name):
 
     except Exception as e:
         print(f"[BT] connect error: {e}")
-        import traceback
-        traceback.print_exc()
         return False, str(e)[:60]
 
 

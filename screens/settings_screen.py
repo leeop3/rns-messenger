@@ -11,7 +11,8 @@ from kivy.graphics import Color, RoundedRectangle
 from kivy.clock import Clock
 from bt_interface import (FREQUENCY_PRESETS, BANDWIDTH_PRESETS,
                           get_paired_devices, connect_bt_device,
-                          disconnect_bt, is_connected)
+                          disconnect_bt, is_connected,
+                          request_bt_permissions)
 
 C_TEXT    = (0.95, 0.95, 0.95, 1)
 C_META    = (0.55, 0.55, 0.60, 1)
@@ -69,14 +70,21 @@ class SettingsScreen(Screen):
                             spacing=8, padding=(16, 12))
         content.bind(minimum_height=content.setter("height"))
 
-        # ?? BT Device Selection ???????????????????????????????????????????
+        # BT Device
         content.add_widget(self._section("RNode Bluetooth"))
 
-        self.device_spinner = _spinner("Scanning...", ["Scanning..."])
+        # Permission status
+        self.perm_label = Label(
+            text="Bluetooth permissions: checking...",
+            color=C_META, font_size="13sp",
+            size_hint_y=None, height=36, halign="left")
+        content.add_widget(self.perm_label)
+
+        self.device_spinner = _spinner("Tap Scan to find devices", ["Tap Scan to find devices"])
         self.device_spinner.background_color = C_ACCENT
         content.add_widget(_row("BT Device", self.device_spinner))
 
-        # Connection status + button row
+        # Status + connect row
         conn_row = BoxLayout(size_hint_y=None, height=ROW_H, spacing=8)
         self.status_label = Label(
             text="? Disconnected", color=C_DISCONN,
@@ -89,15 +97,15 @@ class SettingsScreen(Screen):
         conn_row.add_widget(self.connect_btn)
         content.add_widget(conn_row)
 
-        # Scan/refresh button
+        # Scan button
         scan_btn = Button(
-            text="?? Refresh Paired Devices",
-            size_hint_y=None, height=56,
-            background_color=C_INPUT, color=C_TEXT, font_size="15sp")
-        scan_btn.bind(on_press=lambda *a: self._scan_devices())
+            text="?? Scan Paired BT Devices",
+            size_hint_y=None, height=64,
+            background_color=C_INPUT, color=C_TEXT, font_size=FONT_SP)
+        scan_btn.bind(on_press=lambda *a: self._request_and_scan())
         content.add_widget(scan_btn)
 
-        # ?? LoRa Parameters ???????????????????????????????????????????????
+        # LoRa
         content.add_widget(self._section("LoRa Parameters"))
 
         self.freq_spinner = _spinner("433.025 MHz", list(FREQUENCY_PRESETS.keys()))
@@ -118,7 +126,6 @@ class SettingsScreen(Screen):
             background_color=C_INPUT, foreground_color=C_TEXT, font_size=FONT_SP)
         content.add_widget(_row("TX Power (dBm)", self.txpower_in))
 
-        # Config summary
         content.add_widget(self._section("Active Config"))
         self.config_label = Label(
             text="433.025 MHz | 125 kHz | SF8 | CR6 | 17dBm",
@@ -126,7 +133,6 @@ class SettingsScreen(Screen):
             size_hint_y=None, height=40, halign="left")
         content.add_widget(self.config_label)
 
-        # Identity
         content.add_widget(self._section("Identity"))
         self.identity_label = Label(
             text="Loading...", color=C_META, font_size="13sp",
@@ -162,10 +168,28 @@ class SettingsScreen(Screen):
         addr = self.app.backend.my_address or "Not yet initialised"
         self.identity_label.text = f"Address: {addr}"
         self._update_config_label()
-        self._scan_devices()
         self._update_conn_status()
+        # Auto-request permissions on enter
+        self._request_and_scan()
 
-    # ?? BT scanning & connection ??????????????????????????????????????????
+    def _request_and_scan(self):
+        self.perm_label.text  = "Requesting Bluetooth permissions..."
+        self.perm_label.color = (0.9, 0.7, 0.1, 1)
+
+        def on_permission(granted):
+            if granted:
+                Clock.schedule_once(lambda dt: self._set_perm_label("? Permissions granted", C_GREEN))
+                Clock.schedule_once(lambda dt: self._scan_devices())
+            else:
+                Clock.schedule_once(lambda dt: self._set_perm_label(
+                    "? BT permission denied ? grant in Android Settings", C_WARN))
+
+        # Must call from main thread
+        request_bt_permissions(on_permission)
+
+    def _set_perm_label(self, text, color):
+        self.perm_label.text  = text
+        self.perm_label.color = color
 
     def _scan_devices(self):
         self.device_spinner.text   = "Scanning..."
@@ -177,32 +201,31 @@ class SettingsScreen(Screen):
         Clock.schedule_once(lambda dt: self._populate_devices(devices))
 
     def _populate_devices(self, devices):
-        if not devices:
-            self.device_spinner.values = ["No paired devices found"]
-            self.device_spinner.text   = "No paired devices found"
-            return
-        names = [name for name, addr in devices]
-        self.device_spinner.values = names
-        # Pre-select saved device if still present
+        self.device_spinner.values = devices
         saved = self.app._load_settings().get("bt_device_name", "")
-        self.device_spinner.text = saved if saved in names else names[0]
+        self.device_spinner.text = saved if saved in devices else devices[0]
 
     def _on_connect(self, *args):
         device_name = self.device_spinner.text
-        if not device_name or device_name in ("Scanning...", "No paired devices found"):
+        if not device_name or device_name in (
+                "Scanning...", "No paired devices",
+                "Tap Scan to find devices", "BT not enabled - enable BT first",
+                "No BT adapter"):
             return
+
+        if is_connected():
+            disconnect_bt()
+            self._update_conn_status()
+            return
+
         self.status_label.text  = "? Connecting..."
         self.status_label.color = (0.9, 0.7, 0.1, 1)
         self.connect_btn.disabled = True
 
         def do_connect():
-            if is_connected():
-                disconnect_bt()
-                Clock.schedule_once(lambda dt: self._update_conn_status())
-                Clock.schedule_once(lambda dt: setattr(self.connect_btn, "disabled", False))
-                return
             success, result = connect_bt_device(device_name)
-            Clock.schedule_once(lambda dt: self._on_connect_result(success, result, device_name))
+            Clock.schedule_once(
+                lambda dt: self._on_connect_result(success, result, device_name))
 
         threading.Thread(target=do_connect, daemon=True).start()
 
@@ -210,28 +233,25 @@ class SettingsScreen(Screen):
         self.connect_btn.disabled = False
         if success:
             self.status_label.text  = f"? Connected: {device_name}"
-            self.status_label.color = (0.1, 0.7, 0.3, 1)
+            self.status_label.color = C_GREEN
             self.connect_btn.text   = "Disconnect"
-            # Auto-save device name
             settings = self.app._load_settings()
             settings["bt_device_name"] = device_name
             self.app.save_settings(settings)
         else:
-            self.status_label.text  = f"? Failed: {result[:30]}"
-            self.status_label.color = (0.8, 0.3, 0.3, 1)
+            self.status_label.text  = f"? Failed: {result[:35]}"
+            self.status_label.color = C_WARN
             self.connect_btn.text   = "Connect"
 
     def _update_conn_status(self):
         if is_connected():
             self.status_label.text  = "? Connected"
-            self.status_label.color = (0.1, 0.7, 0.3, 1)
+            self.status_label.color = C_GREEN
             self.connect_btn.text   = "Disconnect"
         else:
             self.status_label.text  = "? Disconnected"
-            self.status_label.color = (0.5, 0.5, 0.5, 1)
+            self.status_label.color = C_DISCONN
             self.connect_btn.text   = "Connect"
-
-    # ?? Save / Reset ?????????????????????????????????????????????????????
 
     def _save(self, *args):
         freq_label = self.freq_spinner.text
