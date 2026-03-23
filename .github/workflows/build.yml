@@ -30,7 +30,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             python3-pip python3-setuptools python3-wheel \
-            git zip unzip openjdk-17-jdk autoconf libtool \
+            git zip unzip openjdk-11-jdk autoconf libtool \
             pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev \
             libtinfo5 cmake libffi-dev libssl-dev
 
@@ -38,25 +38,31 @@ jobs:
         run: |
           pip3 install --upgrade buildozer cython==0.29.33
 
-      - name: Accept Android SDK licenses
+      - name: Set up Android SDK with sdkmanager in legacy path
         run: |
-          mkdir -p ~/.buildozer/android/platform/android-sdk/licenses
-          echo -e "\n24333f8a63b6825ea9c5514f83c2829b004d1fee" > ~/.buildozer/android/platform/android-sdk/licenses/android-sdk-license
-          echo -e "\n84831b9409646a918e30573bab4c9c91346d8abd" > ~/.buildozer/android/platform/android-sdk/licenses/android-sdk-preview-license
-          echo -e "\nd975f751698a77b662f1254ddbeed3901e976f5a" >> ~/.buildozer/android/platform/android-sdk/licenses/android-sdk-license
-          yes | sdkmanager --licenses 2>/dev/null || true
+          ANDROID_SDK=~/.buildozer/android/platform/android-sdk
+          mkdir -p $ANDROID_SDK
 
-      - name: Install pinned Android build-tools
-        run: |
-          mkdir -p ~/.buildozer/android/platform/android-sdk
-          export ANDROID_SDK_ROOT=~/.buildozer/android/platform/android-sdk
+          # Download cmdline-tools
           wget -q https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip -O cmdtools.zip
-          unzip -q cmdtools.zip -d cmdtools
-          mkdir -p $ANDROID_SDK_ROOT/cmdline-tools/latest
-          mv cmdtools/cmdline-tools/* $ANDROID_SDK_ROOT/cmdline-tools/latest/
-          export PATH=$PATH:$ANDROID_SDK_ROOT/cmdline-tools/latest/bin
-          yes | sdkmanager --licenses 2>/dev/null || true
-          sdkmanager "build-tools;33.0.2" "platforms;android-33" "platform-tools"
+          unzip -q cmdtools.zip -d cmdtools_tmp
+
+          # Install in BOTH new and legacy paths so Buildozer finds it
+          mkdir -p $ANDROID_SDK/cmdline-tools/latest
+          mv cmdtools_tmp/cmdline-tools/* $ANDROID_SDK/cmdline-tools/latest/
+
+          # Create legacy tools/bin symlink that Buildozer expects
+          mkdir -p $ANDROID_SDK/tools/bin
+          ln -sf $ANDROID_SDK/cmdline-tools/latest/bin/sdkmanager $ANDROID_SDK/tools/bin/sdkmanager
+          ln -sf $ANDROID_SDK/cmdline-tools/latest/bin/avdmanager $ANDROID_SDK/tools/bin/avdmanager
+
+          # Accept licenses and install required packages
+          export PATH=$PATH:$ANDROID_SDK/cmdline-tools/latest/bin
+          yes | sdkmanager --sdk_root=$ANDROID_SDK --licenses 2>/dev/null || true
+          sdkmanager --sdk_root=$ANDROID_SDK \
+            "build-tools;33.0.2" \
+            "platforms;android-33" \
+            "platform-tools"
 
       - name: Build APK
         run: |
