@@ -1,4 +1,4 @@
-﻿[app]
+[app]
 title           = RNS Messenger
 package.name    = rns_messenger
 package.domain  = org.rns
