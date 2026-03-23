@@ -1,4 +1,4 @@
-﻿import os
+import os
 
 BT_RNODE_CONFIG_TEMPLATE = """
 [reticulum]
@@ -8,7 +8,7 @@ BT_RNODE_CONFIG_TEMPLATE = """
   instances_allowed    = 1
 
 [logging]
-  loglevel = 4
+  loglevel = 2
 
 [interfaces]
 
@@ -26,16 +26,41 @@ BT_RNODE_CONFIG_TEMPLATE = """
     flow_control = False
 """
 
-def write_rns_config(config_dir, bt_port="/dev/rfcomm0", frequency=868000000,
-                     bandwidth=125000, txpower=14, sf=7, cr=5):
+BT_RNODE_CONFIG_SAFE = """
+[reticulum]
+  enable_transport = False
+  share_instance   = True
+  shared_instance_port = 37428
+  instances_allowed    = 1
+
+[logging]
+  loglevel = 2
+
+[interfaces]
+
+  [[Default Interface]]
+    type      = AutoInterface
+    interface_enabled = True
+"""
+
+def write_rns_config(config_dir, bt_port="/dev/rfcomm0", frequency=433025000,
+                     bandwidth=125000, txpower=17, sf=8, cr=6):
     os.makedirs(config_dir, exist_ok=True)
     config_path = os.path.join(config_dir, "config")
     if os.path.exists(config_path):
         return
-    config_content = BT_RNODE_CONFIG_TEMPLATE.format(
-        bt_port=bt_port, frequency=frequency, bandwidth=bandwidth,
-        txpower=txpower, sf=sf, cr=cr,
-    )
+
+    try:
+        import usbserial4a
+        config_content = BT_RNODE_CONFIG_TEMPLATE.format(
+            bt_port=bt_port, frequency=frequency, bandwidth=bandwidth,
+            txpower=txpower, sf=sf, cr=cr,
+        )
+        print("[BT] usbserial4a found, using RNode interface")
+    except ImportError:
+        config_content = BT_RNODE_CONFIG_SAFE
+        print("[BT] usbserial4a not found, using AutoInterface fallback")
+
     with open(config_path, "w") as f:
         f.write(config_content)
     print(f"[BT] Reticulum config written to {config_path}")
@@ -68,10 +93,17 @@ def bind_bt_device(device_name):
         print(f"[BT] Error: {e}")
         return False
 
+# Your RNode defaults
 FREQUENCY_PRESETS = {
-    "EU868": 868000000,
-    "US915": 915000000,
-    "AU915": 915000000,
-    "AS923": 923000000,
-    "IN865": 865000000,
+    "433.025 MHz": 433025000,
+    "868 MHz":     868000000,
+    "915 MHz":     915000000,
+    "923 MHz":     923000000,
+    "865 MHz":     865000000,
+}
+
+BANDWIDTH_PRESETS = {
+    "125 kHz":  125000,
+    "62.5 kHz":  62500,
+    "31.25 kHz": 31250,
 }
