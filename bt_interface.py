@@ -44,44 +44,83 @@ BT_RNODE_CONFIG_SAFE = """
     interface_enabled = True
 """
 
-# Holds the active BT socket globally so it stays open
 _bt_socket = None
 
 
 def get_paired_devices():
     """
-    Returns list of (name, address) tuples for paired BT devices.
-    Returns empty list on non-Android or if BT unavailable.
+    Returns list of device name strings for paired BT Classic devices.
+    Must be called from a background thread on Android.
     """
+    results = []
     try:
-        from jnius import autoclass
+        from jnius import autoclass, cast
+        print("[BT] Scanning for paired devices...")
+
         BluetoothAdapter = autoclass("android.bluetooth.BluetoothAdapter")
+        BluetoothDevice  = autoclass("android.bluetooth.BluetoothDevice")
+
         adapter = BluetoothAdapter.getDefaultAdapter()
-        if adapter is None or not adapter.isEnabled():
-            return []
-        paired = adapter.getBondedDevices().toArray()
-        return [(d.getName(), d.getAddress()) for d in paired]
+        if adapter is None:
+            print("[BT] ERROR: No Bluetooth adapter found")
+            return ["No BT adapter"]
+
+        if not adapter.isEnabled():
+            print("[BT] ERROR: Bluetooth is not enabled")
+            return ["BT not enabled"]
+
+        paired_set = adapter.getBondedDevices()
+        if paired_set is None:
+            print("[BT] No paired devices set returned")
+            return ["No paired devices"]
+
+        paired_array = paired_set.toArray()
+        print(f"[BT] Found {len(paired_array)} paired device(s)")
+
+        for device in paired_array:
+            try:
+                name = device.getName()
+                addr = device.getAddress()
+                # BT Classic check ? type 1=Classic, 2=BLE, 3=Dual
+                bt_type = device.getType()
+                type_str = {1: "Classic", 2: "BLE", 3: "Dual"}.get(bt_type, f"Unknown({bt_type})")
+                print(f"[BT] Device: {name} | {addr} | {type_str}")
+                results.append(name)
+            except Exception as de:
+                print(f"[BT] Error reading device: {de}")
+
+        if not results:
+            return ["No paired devices"]
+        return results
+
     except Exception as e:
         print(f"[BT] get_paired_devices error: {e}")
-        return []
+        import traceback
+        traceback.print_exc()
+        return [f"Error: {str(e)[:30]}"]
 
 
 def connect_bt_device(device_name):
     """
-    Connect to a paired BT device by name using SPP profile.
-    Returns (True, port_path) on success or (False, error_message).
+    Connect to paired BT Classic device by name using SPP UUID.
+    Returns (True, port) or (False, error_message).
     """
     global _bt_socket
     try:
         from jnius import autoclass
+        print(f"[BT] Connecting to {device_name} via BT Classic SPP...")
+
         BluetoothAdapter = autoclass("android.bluetooth.BluetoothAdapter")
         UUID             = autoclass("java.util.UUID")
+
+        # Standard SPP (Serial Port Profile) UUID ? BT Classic only
+        SPP_UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
 
         adapter = BluetoothAdapter.getDefaultAdapter()
         if adapter is None:
             return False, "No Bluetooth adapter"
         if not adapter.isEnabled():
-            return False, "Bluetooth is disabled"
+            return False, "Bluetooth not enabled"
 
         paired = adapter.getBondedDevices().toArray()
         target = None
@@ -91,27 +130,37 @@ def connect_bt_device(device_name):
                 break
 
         if target is None:
-            return False, f"Device '{device_name}' not found in paired devices"
+            return False, f"'{device_name}' not found in paired devices"
 
-        SPP_UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
+        bt_type = target.getType()
+        print(f"[BT] Device type: {bt_type} (1=Classic 2=BLE 3=Dual)")
+        if bt_type == 2:
+            return False, "Device is BLE only ? need BT Classic"
 
-        # Close any existing socket
+        # Close existing socket
         if _bt_socket is not None:
             try:
                 _bt_socket.close()
             except Exception:
                 pass
+            _bt_socket = None
 
-        _bt_socket = target.createRfcommSocketToServiceRecord(SPP_UUID)
+        # Stop discovery before connecting (important!)
         adapter.cancelDiscovery()
-        _bt_socket.connect()
 
+        # Create BT Classic RFCOMM socket
+        socket = target.createRfcommSocketToServiceRecord(SPP_UUID)
+        print("[BT] Connecting RFCOMM socket...")
+        socket.connect()
+        _bt_socket = socket
         print(f"[BT] Connected to {device_name}")
         return True, "/dev/rfcomm0"
 
     except Exception as e:
         print(f"[BT] connect error: {e}")
-        return False, str(e)
+        import traceback
+        traceback.print_exc()
+        return False, str(e)[:60]
 
 
 def disconnect_bt():
@@ -141,7 +190,6 @@ def write_rns_config(config_dir, bt_port="/dev/rfcomm0", frequency=433025000,
     config_path = os.path.join(config_dir, "config")
     if os.path.exists(config_path):
         return
-
     try:
         import usbserial4a
         config_content = BT_RNODE_CONFIG_TEMPLATE.format(
