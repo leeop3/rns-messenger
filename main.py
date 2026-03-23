@@ -1,8 +1,28 @@
 import sys
 import os
 import types
+import signal
+import traceback
 
-# Stub _bz2 for Android
+# Write crash log
+def _write_crash(exc_type, exc_value, exc_tb):
+    try:
+        crash_text = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
+        print(f"[CRASH] {crash_text}")
+        for path in ["/sdcard/rns_crash.txt", "/sdcard/Download/rns_crash.txt"]:
+            try:
+                with open(path, "w") as f:
+                    f.write(crash_text)
+                break
+            except Exception:
+                pass
+    except Exception:
+        pass
+    sys.__excepthook__(exc_type, exc_value, exc_tb)
+
+sys.excepthook = _write_crash
+
+# Stub _bz2
 if '_bz2' not in sys.modules:
     try:
         import _bz2
@@ -22,6 +42,27 @@ if '_bz2' not in sys.modules:
         mod.BZ2Decompressor = BZ2Decompressor
         sys.modules['_bz2'] = mod
 
+# Stub signal.signal ? RNS tries to set signal handlers
+# which only works on the main thread
+_real_signal = signal.signal
+def _safe_signal(sig, handler):
+    try:
+        return _real_signal(sig, handler)
+    except (ValueError, OSError):
+        pass
+signal.signal = _safe_signal
+
+# Stub usbserial4a so RNS does not crash when it is missing
+# RNS will still use the config file interface we specify
+if 'usbserial4a' not in sys.modules:
+    try:
+        import usbserial4a
+    except ImportError:
+        mod = types.ModuleType('usbserial4a')
+        mod.serial_device = None
+        sys.modules['usbserial4a'] = mod
+        print("[STUB] usbserial4a stubbed ? RNode BT via direct socket")
+
 import threading
 from kivy.app import App
 from kivy.uix.screenmanager import ScreenManager, SlideTransition
@@ -32,7 +73,7 @@ from screens.chat_screen import ChatScreen
 from screens.contacts_screen import ContactsScreen
 from screens.settings_screen import SettingsScreen
 
-from bt_interface import write_rns_config, FREQUENCY_PRESETS
+from bt_interface import write_rns_config
 from rns_backend import RNSBackend, APP_DIR, RNS_CONFIG
 
 
@@ -67,10 +108,18 @@ class RNSMessengerApp(App):
             self.backend.start()
         except Exception as e:
             error_msg = str(e)[:50]
-            print(f"[RNS] Startup error: {error_msg}")
+            tb = traceback.format_exc()
+            print(f"[RNS] Startup error:\n{tb}")
+            for path in ["/sdcard/rns_crash.txt", "/sdcard/Download/rns_crash.txt"]:
+                try:
+                    with open(path, "w") as f:
+                        f.write(tb)
+                    break
+                except Exception:
+                    pass
 
         if error_msg is not None:
-            msg = error_msg  # capture in local var for lambda
+            msg = error_msg
             Clock.schedule_once(lambda dt: self._notify_rns_error(msg))
 
     def _notify_rns_error(self, msg):
