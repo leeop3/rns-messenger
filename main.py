@@ -3,6 +3,7 @@ import os
 import types
 import signal
 import traceback
+import importlib.util
 
 # Write crash log
 def _write_crash(exc_type, exc_value, exc_tb):
@@ -42,8 +43,7 @@ if '_bz2' not in sys.modules:
         mod.BZ2Decompressor = BZ2Decompressor
         sys.modules['_bz2'] = mod
 
-# Stub signal.signal ? RNS tries to set signal handlers
-# which only works on the main thread
+# Stub signal.signal for background thread
 _real_signal = signal.signal
 def _safe_signal(sig, handler):
     try:
@@ -52,16 +52,21 @@ def _safe_signal(sig, handler):
         pass
 signal.signal = _safe_signal
 
-# Stub usbserial4a so RNS does not crash when it is missing
-# RNS will still use the config file interface we specify
+# Stub usbserial4a with a proper __spec__ so RNS find_spec check passes
 if 'usbserial4a' not in sys.modules:
     try:
         import usbserial4a
     except ImportError:
         mod = types.ModuleType('usbserial4a')
+        # Give it a real ModuleSpec so importlib.util.find_spec returns non-None
+        mod.__spec__ = importlib.util.spec_from_loader('usbserial4a', loader=None)
+        mod.__spec__.submodule_search_locations = []
+        mod.__loader__ = None
+        mod.__path__   = []
+        mod.__file__   = None
         mod.serial_device = None
         sys.modules['usbserial4a'] = mod
-        print("[STUB] usbserial4a stubbed ? RNode BT via direct socket")
+        print("[STUB] usbserial4a stubbed with proper __spec__")
 
 import threading
 from kivy.app import App
