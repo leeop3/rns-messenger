@@ -8,10 +8,10 @@ source.include_exts = py,png,jpg,kv,atlas,json,cfg,md
 
 version         = 0.1.0
 
-requirements    = python3,kivy==2.3.0,rns,lxmf,pyjnius,msgpack,cryptography
+requirements    = python3,kivy==2.2.1,rns,lxmf,pyjnius,msgpack,cryptography
 
 orientation     = portrait
-fullscreen      = 0
+fullscreen       = 0
 
 android.permissions = BLUETOOTH,BLUETOOTH_ADMIN,BLUETOOTH_CONNECT,BLUETOOTH_SCAN,READ_EXTERNAL_STORAGE,WRITE_EXTERNAL_STORAGE,INTERNET,ACCESS_NETWORK_STATE
 
@@ -20,10 +20,10 @@ android.minapi      = 26
 android.ndk         = 25b
 android.sdk         = 33
 android.ndk_api     = 26
-android.archs       = arm64-v8a, armeabi-v7a
+android.archs       = arm64-v8a
 
 p4a.bootstrap       = sdl2
-p4a.branch          = release-2024.01.21
+p4a.branch          = release-2023.09.16
 
 log_level           = 2
 warn_on_root        = 1
