@@ -1,7 +1,8 @@
 import sys
+import os
 import types
 
-# Stub _bz2 for Android (RNS uses it optionally)
+# Stub _bz2 for Android
 if '_bz2' not in sys.modules:
     try:
         import _bz2
@@ -22,10 +23,6 @@ if '_bz2' not in sys.modules:
         sys.modules['_bz2'] = mod
 
 import threading
-import os
-
-os.environ.setdefault("KIVY_NO_ENV_CONFIG", "1")
-
 from kivy.app import App
 from kivy.uix.screenmanager import ScreenManager, SlideTransition
 from kivy.clock import Clock
@@ -44,28 +41,39 @@ class RNSMessengerApp(App):
     def build(self):
         Window.clearcolor = (0.07, 0.07, 0.10, 1)
         self.backend = RNSBackend()
-        self.backend.on_rns_ready = self._on_rns_ready
-        self.backend.on_message = self._on_message_received
+        self.backend.on_rns_ready    = self._on_rns_ready
+        self.backend.on_message      = self._on_message_received
         self.sm = ScreenManager(transition=SlideTransition())
         self.sm.add_widget(ContactsScreen(name="contacts", app=self))
-        self.sm.add_widget(ChatScreen(name="chat", app=self))
+        self.sm.add_widget(ChatScreen(name="chat",         app=self))
         self.sm.add_widget(SettingsScreen(name="settings", app=self))
         self.sm.current = "contacts"
         threading.Thread(target=self._start_rns, daemon=True).start()
         return self.sm
 
     def _start_rns(self):
-        settings = self._load_settings()
-        write_rns_config(
-            config_dir=RNS_CONFIG,
-            bt_port=settings.get("bt_port", "/dev/rfcomm0"),
-            frequency=settings.get("frequency", 868000000),
-            bandwidth=settings.get("bandwidth", 125000),
-            txpower=settings.get("txpower", 14),
-            sf=settings.get("sf", 7),
-            cr=settings.get("cr", 5),
-        )
-        self.backend.start()
+        try:
+            settings = self._load_settings()
+            write_rns_config(
+                config_dir=RNS_CONFIG,
+                bt_port=settings.get("bt_port", "/dev/rfcomm0"),
+                frequency=settings.get("frequency", 868000000),
+                bandwidth=settings.get("bandwidth", 125000),
+                txpower=settings.get("txpower", 14),
+                sf=settings.get("sf", 7),
+                cr=settings.get("cr", 5),
+            )
+            self.backend.start()
+        except Exception as e:
+            print(f"[RNS] Startup error (non-fatal): {e}")
+            Clock.schedule_once(lambda dt: self._notify_rns_error(str(e)))
+
+    def _notify_rns_error(self, error):
+        try:
+            contacts = self.sm.get_screen("contacts")
+            contacts.set_my_address(f"RNS offline: {error[:40]}")
+        except Exception:
+            pass
 
     def _on_rns_ready(self):
         Clock.schedule_once(lambda dt: self._notify_ui_rns_ready())
