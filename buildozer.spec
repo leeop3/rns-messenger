@@ -23,7 +23,7 @@ android.ndk_api     = 26
 android.archs       = arm64-v8a
 
 p4a.bootstrap       = sdl2
-p4a.branch          = release-2023.09.16
+p4a.branch          = v2023.02.10
 
 log_level           = 2
 warn_on_root        = 1
