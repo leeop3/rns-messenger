@@ -14,17 +14,34 @@ BT_RNODE_CONFIG_TEMPLATE = """
 [interfaces]
 
   [[RNode BT Interface]]
-    type        = RNodeInterface
+    type             = RNodeInterface
     interface_enabled = True
-    outgoing    = True
+    outgoing         = True
 
-    port        = {bt_port}
-    frequency   = {frequency}
-    bandwidth   = {bandwidth}
-    txpower     = {txpower}
-    spreadingfactor = {sf}
-    codingrate  = {cr}
-    flow_control = False
+    bluetooth_device = {bt_device}
+    frequency        = {frequency}
+    bandwidth        = {bandwidth}
+    txpower          = {txpower}
+    spreadingfactor  = {sf}
+    codingrate       = {cr}
+    flow_control     = False
+"""
+
+BT_RNODE_CONFIG_SAFE = """
+[reticulum]
+  enable_transport = False
+  share_instance   = True
+  shared_instance_port = 37428
+  instances_allowed    = 1
+
+[logging]
+  loglevel = 2
+
+[interfaces]
+
+  [[Default Interface]]
+    type      = AutoInterface
+    interface_enabled = True
 """
 
 _bt_socket = None
@@ -64,9 +81,9 @@ def get_paired_devices():
         print(f"[BT] Found {len(paired_array)} paired device(s)")
         for device in paired_array:
             try:
-                name    = device.getName()
-                addr    = device.getAddress()
-                bt_type = device.getType()
+                name     = device.getName()
+                addr     = device.getAddress()
+                bt_type  = device.getType()
                 type_str = {1: "Classic", 2: "BLE", 3: "Dual"}.get(bt_type, str(bt_type))
                 print(f"[BT] {name} | {addr} | {type_str}")
                 results.append(name)
@@ -76,6 +93,22 @@ def get_paired_devices():
     except Exception as e:
         print(f"[BT] get_paired_devices error: {e}")
         return [f"Error: {str(e)[:30]}"]
+
+
+def get_device_address(device_name: str) -> str:
+    """Get MAC address for a paired device by name."""
+    try:
+        from jnius import autoclass
+        BluetoothAdapter = autoclass("android.bluetooth.BluetoothAdapter")
+        adapter = BluetoothAdapter.getDefaultAdapter()
+        if adapter is None:
+            return ""
+        for device in adapter.getBondedDevices().toArray():
+            if device.getName() == device_name:
+                return device.getAddress()
+    except Exception as e:
+        print(f"[BT] get_device_address error: {e}")
+    return ""
 
 
 def connect_bt_device(device_name):
@@ -112,7 +145,7 @@ def connect_bt_device(device_name):
         socket.connect()
         _bt_socket = socket
         print(f"[BT] Connected to {device_name}")
-        return True, "/dev/rfcomm0"
+        return True, target.getAddress()
     except Exception as e:
         print(f"[BT] connect error: {e}")
         return False, str(e)[:60]
@@ -139,20 +172,34 @@ def is_connected():
         return False
 
 
-def write_rns_config(config_dir, bt_port="/dev/rfcomm0", frequency=433025000,
+def write_rns_config(config_dir, bt_device="", frequency=433025000,
                      bandwidth=125000, txpower=17, sf=8, cr=6):
+    """
+    Write RNS config using bluetooth_device (MAC address or name).
+    RNS RNodeInterface on Android supports bluetooth_device= directly.
+    """
     os.makedirs(config_dir, exist_ok=True)
     config_path = os.path.join(config_dir, "config")
     if os.path.exists(config_path):
         return
-    # Always write RNode config ? usbserial4a is stubbed in main.py
-    config_content = BT_RNODE_CONFIG_TEMPLATE.format(
-        bt_port=bt_port, frequency=frequency, bandwidth=bandwidth,
-        txpower=txpower, sf=sf, cr=cr,
-    )
+
+    if bt_device:
+        config_content = BT_RNODE_CONFIG_TEMPLATE.format(
+            bt_device=bt_device,
+            frequency=frequency,
+            bandwidth=bandwidth,
+            txpower=txpower,
+            sf=sf,
+            cr=cr,
+        )
+        print(f"[BT] RNode config written with bluetooth_device={bt_device}")
+    else:
+        config_content = BT_RNODE_CONFIG_SAFE
+        print("[BT] No BT device configured, using AutoInterface fallback")
+
     with open(config_path, "w") as f:
         f.write(config_content)
-    print(f"[BT] RNode config written to {config_path}")
+    print(f"[BT] Config written to {config_path}")
 
 
 FREQUENCY_PRESETS = {

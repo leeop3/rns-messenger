@@ -4,7 +4,6 @@ import types
 import signal
 import traceback
 
-# Write crash log
 def _write_crash(exc_type, exc_value, exc_tb):
     try:
         crash_text = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
@@ -61,7 +60,7 @@ from screens.chat_screen import ChatScreen
 from screens.contacts_screen import ContactsScreen
 from screens.settings_screen import SettingsScreen
 
-from bt_interface import write_rns_config
+from bt_interface import write_rns_config, get_device_address
 from rns_backend import RNSBackend, APP_DIR, RNS_CONFIG
 
 
@@ -83,15 +82,23 @@ class RNSMessengerApp(App):
     def _start_rns(self):
         error_msg = None
         try:
-            settings = self._load_settings()
+            settings      = self._load_settings()
+            bt_name       = settings.get("bt_device_name", "")
+
+            # Get MAC address for bluetooth_device= config key
+            bt_device = ""
+            if bt_name:
+                bt_device = get_device_address(bt_name) or bt_name
+                print(f"[RNS] Using BT device: {bt_name} ({bt_device})")
+
             write_rns_config(
-                config_dir=RNS_CONFIG,
-                bt_port=settings.get("bt_port", "/dev/rfcomm0"),
-                frequency=settings.get("frequency", 433025000),
-                bandwidth=settings.get("bandwidth", 125000),
-                txpower=settings.get("txpower", 17),
-                sf=settings.get("sf", 8),
-                cr=settings.get("cr", 6),
+                config_dir = RNS_CONFIG,
+                bt_device  = bt_device,
+                frequency  = settings.get("frequency",  433025000),
+                bandwidth  = settings.get("bandwidth",  125000),
+                txpower    = settings.get("txpower",    17),
+                sf         = settings.get("sf",         8),
+                cr         = settings.get("cr",         6),
             )
             self.backend.start()
         except Exception as e:
