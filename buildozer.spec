@@ -8,7 +8,7 @@ source.include_exts = py,png,jpg,kv,atlas,json,cfg,md
 
 version         = 0.1.0
 
-requirements    = python3,kivy==2.2.1,rns,lxmf,pyjnius,msgpack,cryptography
+requirements    = python3,kivy==2.2.1,rns,lxmf,pyjnius,msgpack,cryptography,usb4a,usbserial4a
 
 orientation     = portrait
 fullscreen       = 0
@@ -24,10 +24,6 @@ android.archs       = arm64-v8a
 
 p4a.bootstrap       = sdl2
 p4a.branch          = v2023.02.10
-
-# Include built-in modules that RNS needs
-android.enable_androidx = True
-p4a.extra_modules   = bz2,sqlite3
 
 log_level           = 2
 warn_on_root        = 1

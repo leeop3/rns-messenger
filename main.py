@@ -3,7 +3,6 @@ import os
 import types
 import signal
 import traceback
-import importlib.util
 
 # Write crash log
 def _write_crash(exc_type, exc_value, exc_tb):
@@ -51,108 +50,6 @@ def _safe_signal(sig, handler):
     except (ValueError, OSError):
         pass
 signal.signal = _safe_signal
-
-
-def _make_spec(name):
-    spec = importlib.util.spec_from_loader(name, loader=None)
-    if spec:
-        spec.submodule_search_locations = []
-    return spec
-
-
-def _stub_module(name, attrs=None):
-    mod = types.ModuleType(name)
-    mod.__spec__  = _make_spec(name)
-    mod.__path__  = []
-    mod.__file__  = None
-    mod.__loader__ = None
-    if attrs:
-        for k, v in attrs.items():
-            setattr(mod, k, v)
-    sys.modules[name] = mod
-    return mod
-
-
-# Stub usb4a and all submodules RNS might import
-for _name in [
-    'usb4a',
-    'usb4a.usb',
-    'usb4a.utils',
-]:
-    if _name not in sys.modules:
-        _stub_module(_name)
-
-print("[STUB] usb4a stubbed")
-
-# Stub usbserial4a with serial4a submodule containing a BT-backed Serial class
-if 'usbserial4a' not in sys.modules:
-    try:
-        import usbserial4a
-        print("[STUB] real usbserial4a found")
-    except ImportError:
-
-        class Serial:
-            """Stub Serial backed by the BT Classic socket from bt_interface."""
-            def __init__(self, port, baudrate=115200, timeout=1, *args, **kwargs):
-                self.port      = port
-                self.baudrate  = baudrate
-                self.timeout   = timeout
-                self._in       = None
-                self._out      = None
-                self.is_open   = False
-                print(f"[STUB] Serial({port}, {baudrate}) created")
-                self.open()
-
-            def open(self):
-                try:
-                    from bt_interface import _bt_socket
-                    if _bt_socket is not None and _bt_socket.isConnected():
-                        self._in    = _bt_socket.getInputStream()
-                        self._out   = _bt_socket.getOutputStream()
-                        self.is_open = True
-                        print("[STUB] Serial.open() ? BT socket ready")
-                    else:
-                        print("[STUB] Serial.open() ? no BT socket yet")
-                except Exception as e:
-                    print(f"[STUB] Serial.open() error: {e}")
-
-            def close(self):
-                self.is_open = False
-
-            def read(self, size=1):
-                if self._in is None:
-                    return b''
-                try:
-                    buf = bytearray(size)
-                    n   = self._in.read(buf, 0, size)
-                    return bytes(buf[:n]) if n > 0 else b''
-                except Exception:
-                    return b''
-
-            def write(self, data):
-                if self._out is None:
-                    return 0
-                try:
-                    self._out.write(list(data))
-                    self._out.flush()
-                    return len(data)
-                except Exception as e:
-                    print(f"[STUB] Serial.write error: {e}")
-                    return 0
-
-            @property
-            def in_waiting(self):
-                if self._in is None:
-                    return 0
-                try:
-                    return self._in.available()
-                except Exception:
-                    return 0
-
-        serial4a_mod = _stub_module('usbserial4a.serial4a', {'Serial': Serial})
-        usb_mod      = _stub_module('usbserial4a', {'serial4a': serial4a_mod, 'Serial': Serial})
-        print("[STUB] usbserial4a + serial4a stubbed")
-
 
 import threading
 from kivy.app import App
