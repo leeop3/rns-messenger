@@ -4,7 +4,7 @@ import threading
 import RNS
 import LXMF
 
-# Android-compatible storage path
+
 def _get_app_dir():
     try:
         from jnius import autoclass
@@ -13,7 +13,6 @@ def _get_app_dir():
         files_dir = context.getFilesDir().getAbsolutePath()
         return os.path.join(files_dir, "rns_messenger")
     except Exception:
-        # Fallback for non-Android (desktop testing)
         return os.path.expanduser("~/.rns_messenger")
 
 APP_DIR       = _get_app_dir()
@@ -27,14 +26,14 @@ OPPORTUNISTIC_MAX = 250
 class RNSBackend:
 
     def __init__(self):
-        self.reticulum        = None
-        self.router           = None
-        self.identity         = None
-        self.local_dest       = None
-        self.running          = False
-        self.on_message       = None
-        self.on_state_change  = None
-        self.on_rns_ready     = None
+        self.reticulum       = None
+        self.router          = None
+        self.identity        = None
+        self.local_dest      = None
+        self.running         = False
+        self.on_message      = None
+        self.on_state_change = None
+        self.on_rns_ready    = None
 
         os.makedirs(APP_DIR,  exist_ok=True)
         os.makedirs(LXMF_DIR, exist_ok=True)
@@ -46,9 +45,10 @@ class RNSBackend:
             enforce_stamps=False,
         )
         self.identity   = self._load_or_create_identity()
+        # display_name must be a string not bytes
         self.local_dest = self.router.register_delivery_identity(
             self.identity,
-            display_name=b"RNS Messenger",
+            display_name="RNS Messenger",
         )
         self.router.register_delivery_callback(self._on_message_received)
         self.local_dest.announce()
@@ -79,29 +79,33 @@ class RNSBackend:
         return None
 
     def send_text(self, recipient_hash_hex, text, on_delivered=None, on_failed=None):
-        recipient_hash = bytes.fromhex(recipient_hash_hex.replace("<","").replace(">","").strip())
+        recipient_hash = bytes.fromhex(
+            recipient_hash_hex.replace("<","").replace(">","").strip())
         dest = self._resolve_destination(recipient_hash)
         if dest is None:
             if on_failed:
                 on_failed(None)
             return None
         content_bytes = text.encode("utf-8")
-        if len(content_bytes) <= OPPORTUNISTIC_MAX:
-            method = LXMF.LXMessage.OPPORTUNISTIC
-        else:
-            method = LXMF.LXMessage.DIRECT
-        msg = LXMF.LXMessage(dest, self.local_dest, text, desired_method=method)
+        method = (LXMF.LXMessage.OPPORTUNISTIC
+                  if len(content_bytes) <= OPPORTUNISTIC_MAX
+                  else LXMF.LXMessage.DIRECT)
+        msg = LXMF.LXMessage(dest, self.local_dest, text,
+                              desired_method=method)
         msg.try_propagation_on_fail = True
         if on_delivered:
-            msg.register_delivery_callback(lambda m: on_delivered(RNS.hexrep(m.hash)))
+            msg.register_delivery_callback(
+                lambda m: on_delivered(RNS.hexrep(m.hash)))
         if on_failed:
-            msg.register_failed_callback(lambda m: on_failed(RNS.hexrep(m.hash)))
+            msg.register_failed_callback(
+                lambda m: on_failed(RNS.hexrep(m.hash)))
         self.router.handle_outbound(msg)
         return RNS.hexrep(msg.hash)
 
     def send_image(self, recipient_hash_hex, image_bytes, caption="",
                    mime_type="image/jpeg", on_delivered=None, on_failed=None):
-        recipient_hash = bytes.fromhex(recipient_hash_hex.replace("<","").replace(">","").strip())
+        recipient_hash = bytes.fromhex(
+            recipient_hash_hex.replace("<","").replace(">","").strip())
         dest = self._resolve_destination(recipient_hash)
         if dest is None:
             if on_failed:
@@ -111,12 +115,15 @@ class RNSBackend:
             LXMF.FIELD_IMAGE: [mime_type.encode("utf-8"), image_bytes],
         }
         msg = LXMF.LXMessage(dest, self.local_dest, caption,
-                              desired_method=LXMF.LXMessage.DIRECT, fields=fields)
+                              desired_method=LXMF.LXMessage.DIRECT,
+                              fields=fields)
         msg.try_propagation_on_fail = True
         if on_delivered:
-            msg.register_delivery_callback(lambda m: on_delivered(RNS.hexrep(m.hash)))
+            msg.register_delivery_callback(
+                lambda m: on_delivered(RNS.hexrep(m.hash)))
         if on_failed:
-            msg.register_failed_callback(lambda m: on_failed(RNS.hexrep(m.hash)))
+            msg.register_failed_callback(
+                lambda m: on_failed(RNS.hexrep(m.hash)))
         self.router.handle_outbound(msg)
         return RNS.hexrep(msg.hash)
 
